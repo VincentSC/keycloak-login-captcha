@@ -4,18 +4,15 @@ import java.util.ArrayList;
 import java.util.List;
 
 import org.keycloak.Config;
-import org.keycloak.OAuth2Constants;
 import org.keycloak.authentication.Authenticator;
 import org.keycloak.authentication.AuthenticatorFactory;
-import org.keycloak.authentication.DisplayTypeAuthenticatorFactory;
-import org.keycloak.authentication.authenticators.console.ConsoleUsernamePasswordAuthenticator;
 import org.keycloak.models.AuthenticationExecutionModel;
 import org.keycloak.models.KeycloakSession;
 import org.keycloak.models.KeycloakSessionFactory;
 import org.keycloak.models.credential.PasswordCredentialModel;
 import org.keycloak.provider.ProviderConfigProperty;
 
-public class RecaptchaUsernamePasswordFormFactory  implements AuthenticatorFactory, DisplayTypeAuthenticatorFactory {
+public class RecaptchaUsernamePasswordFormFactory  implements AuthenticatorFactory {
 
     public static final String PROVIDER_ID = "recaptcha-u-p-form";
     public static final RecaptchaUsernamePasswordForm SINGLETON = new RecaptchaUsernamePasswordForm();
@@ -23,13 +20,6 @@ public class RecaptchaUsernamePasswordFormFactory  implements AuthenticatorFacto
     @Override
     public Authenticator create(KeycloakSession session) {
         return SINGLETON;
-    }
-
-    @Override
-    public Authenticator createDisplay(KeycloakSession session, String displayType) {
-        if (displayType == null) return SINGLETON;
-        if (!OAuth2Constants.DISPLAY_CONSOLE.equalsIgnoreCase(displayType)) return null;
-        return ConsoleUsernamePasswordAuthenticator.SINGLETON;
     }
 
     @Override
@@ -104,6 +94,23 @@ public class RecaptchaUsernamePasswordFormFactory  implements AuthenticatorFacto
         property.setLabel("use recaptcha.net");
         property.setType(ProviderConfigProperty.BOOLEAN_TYPE);
         property.setHelpText("Use recaptcha.net? (or else google.com)");
+        CONFIG_PROPERTIES.add(property);
+
+        property = new ProviderConfigProperty();
+        property.setName(RecaptchaUsernamePasswordForm.CONFIG_VERSION);
+        property.setLabel("Recaptcha Version");
+        property.setType(ProviderConfigProperty.LIST_TYPE);
+        property.setOptions(java.util.Arrays.asList(RecaptchaUsernamePasswordForm.VERSION_V2, RecaptchaUsernamePasswordForm.VERSION_V3));
+        property.setDefaultValue(RecaptchaUsernamePasswordForm.VERSION_V2);
+        property.setHelpText("v2 = visible checkbox widget. v3 = invisible, score-based (no user interaction) - requires a v3 site key/secret.");
+        CONFIG_PROPERTIES.add(property);
+
+        property = new ProviderConfigProperty();
+        property.setName(RecaptchaUsernamePasswordForm.CONFIG_MIN_SCORE);
+        property.setLabel("Minimum Score (v3 only)");
+        property.setType(ProviderConfigProperty.STRING_TYPE);
+        property.setDefaultValue(RecaptchaUsernamePasswordForm.DEFAULT_MIN_SCORE);
+        property.setHelpText("Minimum acceptable v3 score, 0.0-1.0 (higher = stricter). Ignored when Recaptcha Version is v2.");
         CONFIG_PROPERTIES.add(property);
     }
 

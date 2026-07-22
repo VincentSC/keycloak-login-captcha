@@ -19,10 +19,13 @@ import org.keycloak.services.ServicesLogger;
 import org.keycloak.services.messages.Messages;
 import org.keycloak.services.validation.Validation;
 import org.keycloak.util.JsonSerialization;
+import org.keycloak.marjaa.providers.login.recaptcha.resource.RecaptchaResourceProviderFactory;
 
-import javax.ws.rs.core.MultivaluedMap;
-import javax.ws.rs.core.Response;
+import jakarta.ws.rs.core.MultivaluedMap;
+import jakarta.ws.rs.core.Response;
+import jakarta.ws.rs.core.UriBuilder;
 import java.io.InputStream;
+import java.net.URI;
 import java.util.*;
 
 public class RecaptchaUsernamePasswordForm extends UsernamePasswordForm implements Authenticator{
@@ -30,16 +33,12 @@ public class RecaptchaUsernamePasswordForm extends UsernamePasswordForm implemen
 	public static final String SITE_KEY = "site.key";
 	public static final String SITE_SECRET = "secret";
 	public static final String USE_RECAPTCHA_NET = "useRecaptchaNet";
+	public static final String CONFIG_VERSION = "recaptcha.version";
+	public static final String VERSION_V2 = "v2";
+	public static final String VERSION_V3 = "v3";
+	public static final String CONFIG_MIN_SCORE = "min.score";
+	public static final String DEFAULT_MIN_SCORE = "0.5";
 	private static final Logger logger = Logger.getLogger(RecaptchaUsernamePasswordForm.class);
-
-	private String siteKey;
-
-	@Override
-	protected Response createLoginForm( LoginFormsProvider form ) {
-		form.setAttribute("recaptchaRequired", true);
-		form.setAttribute("recaptchaSiteKey", siteKey);
-		return super.createLoginForm( form );
-	}
 
 	@Override
 	public void authenticate(AuthenticationFlowContext context) {
@@ -51,7 +50,6 @@ public class RecaptchaUsernamePasswordForm extends UsernamePasswordForm implemen
 
 		AuthenticatorConfigModel captchaConfig = context.getAuthenticatorConfig();
 		LoginFormsProvider form = context.form();
-		String userLanguageTag = context.getSession().getContext().resolveLocale(context.getUser()).toLanguageTag();
 
 		if (captchaConfig == null || captchaConfig.getConfig() == null
 				|| captchaConfig.getConfig().get(SITE_KEY) == null
@@ -59,10 +57,22 @@ public class RecaptchaUsernamePasswordForm extends UsernamePasswordForm implemen
 			form.addError(new FormMessage(null, Messages.RECAPTCHA_NOT_CONFIGURED));
 			return;
 		}
-		siteKey = captchaConfig.getConfig().get(SITE_KEY);
-		form.setAttribute("recaptchaRequired", true);
-		form.setAttribute("recaptchaSiteKey", siteKey);
-		form.addScript("https://www." + getRecaptchaDomain(captchaConfig) + "/recaptcha/api.js?hl=" + userLanguageTag);
+		String siteKey = captchaConfig.getConfig().get(SITE_KEY);
+
+		// Load the widget via our own resource-provider endpoint (self-injecting JS) instead of
+		// theme attributes/markup, so this works against any login theme without touching it.
+		URI baseUri = context.getSession().getContext().getUri().getBaseUri();
+		String injectUrl = UriBuilder.fromUri(baseUri)
+				.path("realms")
+				.path(context.getRealm().getName())
+				.path(RecaptchaResourceProviderFactory.ID)
+				.path("inject.js")
+				.queryParam("siteKey", siteKey)
+				.queryParam("domain", getRecaptchaDomain(captchaConfig))
+				.queryParam("version", getVersion(captchaConfig))
+				.build()
+				.toString();
+		form.addScript(injectUrl);
 
 		super.authenticate(context);
 	}
@@ -112,6 +122,26 @@ public class RecaptchaUsernamePasswordForm extends UsernamePasswordForm implemen
 		return "google.com";
 	}
 
+	private String getVersion(AuthenticatorConfigModel config) {
+		String version = Optional.ofNullable(config)
+				.map(configModel -> configModel.getConfig())
+				.map(cfg -> cfg.get(CONFIG_VERSION))
+				.orElse(VERSION_V2);
+		return VERSION_V3.equals(version) ? VERSION_V3 : VERSION_V2;
+	}
+
+	private double getMinScore(AuthenticatorConfigModel config) {
+		String raw = Optional.ofNullable(config)
+				.map(configModel -> configModel.getConfig())
+				.map(cfg -> cfg.get(CONFIG_MIN_SCORE))
+				.orElse(DEFAULT_MIN_SCORE);
+		try {
+			return Double.parseDouble(raw);
+		} catch (NumberFormatException | NullPointerException e) {
+			return Double.parseDouble(DEFAULT_MIN_SCORE);
+		}
+	}
+
 	protected boolean validateRecaptcha(AuthenticationFlowContext context, boolean success, String captcha, String secret) {
 		HttpClient httpClient = context.getSession().getProvider(HttpClientProvider.class).getHttpClient();
 		HttpPost post = new HttpPost("https://www." + getRecaptchaDomain(context.getAuthenticatorConfig()) + "/recaptcha/api/siteverify");
@@ -126,8 +156,14 @@ public class RecaptchaUsernamePasswordForm extends UsernamePasswordForm implemen
 			InputStream content = response.getEntity().getContent();
 			try {
 				Map json = JsonSerialization.readValue(content, Map.class);
-				Object val = json.get("success");
-				success = Boolean.TRUE.equals(val);
+				success = Boolean.TRUE.equals(json.get("success"));
+
+				AuthenticatorConfigModel captchaConfig = context.getAuthenticatorConfig();
+				if (success && VERSION_V3.equals(getVersion(captchaConfig))) {
+					Object scoreObj = json.get("score");
+					double score = scoreObj instanceof Number ? ((Number) scoreObj).doubleValue() : 0.0;
+					success = score >= getMinScore(captchaConfig);
+				}
 			} finally {
 				content.close();
 			}
