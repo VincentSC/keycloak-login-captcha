@@ -5,11 +5,36 @@ services:
       - start-dev
       - --import-realm
     restart: always
+    depends_on:
+     - db
     environment:
       KC_BOOTSTRAP_ADMIN_USERNAME: admin
       KC_BOOTSTRAP_ADMIN_PASSWORD: admin
+      KC_DB: postgres 
+      KC_DB_URL: jdbc:postgresql://db:5432/keycloak
+      KC_DB_USERNAME: ${DB_USERNAME}
+      KC_DB_PASSWORD: ${DB_PASSWORD}
     volumes:
       - ./playground-realm.json:/opt/keycloak/data/import/playground-realm.json
-      - ./target/recaptcha-login.jar:/opt/keycloak/providers/recaptcha-login.jar
+      - ./recaptcha-login.jar:/opt/keycloak/providers/recaptcha-login.jar
+#      - ./volumes/backup:/opt/keycloak/backup
+#      - ./volumes/themes:/opt/keycloak/themes
     ports:
       - 8080:8080
+    networks:
+      - default
+
+
+  db:
+    image: postgres:15
+    restart: unless-stopped
+    container_name: db
+    volumes:
+      - ./volumes/postgres_data:/var/lib/postgresql/data
+    environment:
+      POSTGRES_DB: ${DB_USERNAME}
+      POSTGRES_USER: ${DB_USERNAME}
+      POSTGRES_PASSWORD: ${DB_PASSWORD}
+    networks:
+      - default
+

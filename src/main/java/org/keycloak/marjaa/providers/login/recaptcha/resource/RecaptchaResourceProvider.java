@@ -9,8 +9,9 @@ import org.keycloak.models.KeycloakSession;
 import org.keycloak.services.resource.RealmResourceProvider;
 
 /**
- * Serves a small, theme-agnostic injection script so the recaptcha widget can attach itself to
- * whatever login form is rendered (stock or custom theme) without any theme/login.ftl changes.
+ * Serveert een klein, theme-agnostisch injectiescript zodat de captcha-widget zichzelf
+ * kan attachen aan het login-formulier (standaard of custom theme) zonder theme/login.ftl-wijzigingen.
+ * Ondersteunt Google reCAPTCHA v2/v3, recaptcha.net, self-hosted Cap en Cloudflare Turnstile.
  */
 public class RecaptchaResourceProvider implements RealmResourceProvider {
 
@@ -26,68 +27,74 @@ public class RecaptchaResourceProvider implements RealmResourceProvider {
     @GET
     @Path("inject.js")
     @Produces("application/javascript")
-    public Response injectScript(@QueryParam("siteKey") String siteKey, @QueryParam("domain") String domain,
-                                  @QueryParam("version") String version) {
-        String safeSiteKey = siteKey == null ? "" : siteKey.replace("\"", "").replace("\\", "");
-        String safeDomain = "recaptcha.net".equals(domain) ? "recaptcha.net" : "google.com";
-        boolean v3 = "v3".equals(version);
+    public Response injectScript(@QueryParam("siteKey") String siteKey,
+                                 @QueryParam("provider") String provider,
+                                 @QueryParam("capEndpoint") String capEndpoint) {
+        String safeSiteKey = sanitize(siteKey);
+        String safeProvider = sanitizeProvider(provider);
+        String safeCapEndpoint = sanitizeUrl(capEndpoint);
 
-        // v2: visible checkbox widget, auto-rendered by Google's library into a .g-recaptcha div.
-        // v3: invisible, score-based - loaded with ?render=SITE_KEY and executed on form submit
-        // (no widget to place, so the same DOM lookup just gates where the submit listener attaches).
         String js = "(function () {\n" +
-                "  var SITE_KEY = \"" + safeSiteKey + "\";\n" +
-                "  var IS_V3 = " + v3 + ";\n" +
-                "  var RESPONSE_FIELD = \"g-recaptcha-response\";\n" +
-                "  var API_URL = \"https://www." + safeDomain + "/recaptcha/api.js\"" + (v3 ? " + \"?render=\" + SITE_KEY;\n" : ";\n") +
+                "  var SITE_KEY = '" + safeSiteKey + "';\n" +
+                "  var PROVIDER = '" + safeProvider + "';\n" +
+                "  var CAP_ENDPOINT = '" + safeCapEndpoint + "';\n" +
+                "  var IS_V3 = (PROVIDER === 'google-v3' || PROVIDER === 'recaptcha-net-v3');\n" +
+                "  var GOOGLE_BASE = PROVIDER.indexOf('recaptcha-net') === 0 ? 'https://www.recaptcha.net' : 'https://www.google.com';\n" +
                 "\n" +
                 "  function findLoginForm() {\n" +
-                "    var pwd = document.querySelector('input[type=\"password\"]');\n" +
+                "    var pwd = document.querySelector('input[type=password]');\n" +
                 "    if (pwd && pwd.form) return pwd.form;\n" +
                 "    return document.getElementById('kc-form-login');\n" +
                 "  }\n" +
                 "\n" +
-                "  function loadLibrary() {\n" +
-                "    if (document.querySelector('script[data-recaptcha-lib]')) return;\n" +
+                "  function loadScript(src) {\n" +
+                "    if (document.querySelector('script[data-captcha-lib=\\'' + src + '\\']')) return;\n" +
                 "    var lib = document.createElement('script');\n" +
-                "    lib.src = API_URL;\n" +
+                "    lib.src = src;\n" +
                 "    lib.async = true;\n" +
                 "    lib.defer = true;\n" +
-                "    lib.setAttribute('data-recaptcha-lib', '1');\n" +
+                "    lib.setAttribute('data-captcha-lib', src);\n" +
                 "    document.head.appendChild(lib);\n" +
                 "  }\n" +
                 "\n" +
+                "  function insertBeforeSubmit(form, el) {\n" +
+                "    var btn = form.querySelector('button[type=submit], input[type=submit]');\n" +
+                "    if (btn) { btn.parentNode.insertBefore(el, btn); } else { form.appendChild(el); }\n" +
+                "  }\n" +
+                "\n" +
+                "  // Google reCAPTCHA v2: zichtbare checkbox, auto-render door Google's bibliotheek\n" +
                 "  function injectV2(form) {\n" +
-                "    if (document.querySelector('.g-recaptcha')) return true;\n" +
-                "    var wrapper = document.createElement('div');\n" +
-                "    wrapper.className = 'g-recaptcha';\n" +
-                "    wrapper.setAttribute('data-size', 'compact');\n" +
-                "    wrapper.setAttribute('data-sitekey', SITE_KEY);\n" +
-                "    var submitBtn = form.querySelector('button[type=\"submit\"], input[type=\"submit\"]');\n" +
-                "    if (submitBtn) { submitBtn.parentNode.insertBefore(wrapper, submitBtn); }\n" +
-                "    else { form.appendChild(wrapper); }\n" +
-                "    loadLibrary();\n" +
+                "    if (form.querySelector('.g-recaptcha')) return true;\n" +
+                "    var w = document.createElement('div');\n" +
+                "    w.className = 'g-recaptcha';\n" +
+                "    w.setAttribute('data-size', 'compact');\n" +
+                "    w.setAttribute('data-sitekey', SITE_KEY);\n" +
+                "    insertBeforeSubmit(form, w);\n" +
+                "    loadScript(GOOGLE_BASE + '/recaptcha/api.js');\n" +
                 "    return true;\n" +
                 "  }\n" +
                 "\n" +
+                "  // Google reCAPTCHA v3: onzichtbaar, grecaptcha.execute() bij submit;\n" +
+                "  // token komt in een hidden g-recaptcha-response input. Fallback: na 10s\n" +
+                "  // zonder geladen bibliotheek submit het formulier zonder token (server wijst af).\n" +
                 "  function injectV3(form) {\n" +
-                "    if (form.dataset.recaptchaV3Bound) return true;\n" +
-                "    form.dataset.recaptchaV3Bound = '1';\n" +
-                "    loadLibrary();\n" +
+                "    if (form.dataset.captchaV3Bound) return true;\n" +
+                "    form.dataset.captchaV3Bound = '1';\n" +
+                "    loadScript(GOOGLE_BASE + '/recaptcha/api.js?render=' + SITE_KEY);\n" +
                 "    form.addEventListener('submit', function (e) {\n" +
-                "      if (form.dataset.recaptchaSubmitting) return;\n" +
+                "      if (form.dataset.captchaSubmitting) return;\n" +
                 "      e.preventDefault();\n" +
                 "      var run = function () {\n" +
-                "        grecaptcha.execute(SITE_KEY, {action: 'login'}).then(function (token) {\n" +
-                "          var input = form.querySelector('input[name=\"' + RESPONSE_FIELD + '\"]');\n" +
+                "        grecaptcha.execute(SITE_KEY, { action: 'login' }).then(function (token) {\n" +
+                "          var input = form.querySelector('input[name=g-recaptcha-response]');\n" +
                 "          if (!input) {\n" +
                 "            input = document.createElement('input');\n" +
                 "            input.type = 'hidden';\n" +
-                "            input.name = RESPONSE_FIELD;\n" +
+                "            input.name = 'g-recaptcha-response';\n" +
                 "            form.appendChild(input);\n" +
                 "          }\n" +
                 "          input.value = token;\n" +
-                "          form.dataset.recaptchaSubmitting = '1';\n" +
+                "          form.dataset.captchaSubmitting = '1';\n" +
                 "          form.submit();\n" +
                 "        });\n" +
                 "      };\n" +
@@ -98,10 +105,35 @@ public class RecaptchaResourceProvider implements RealmResourceProvider {
                 "        var w = setInterval(function () {\n" +
                 "          tries++;\n" +
                 "          if (window.grecaptcha && window.grecaptcha.ready) { clearInterval(w); grecaptcha.ready(run); }\n" +
-                "          else if (tries > 40) { clearInterval(w); form.dataset.recaptchaSubmitting = '1'; form.submit(); }\n" +
+                "          else if (tries > 40) { clearInterval(w); form.dataset.captchaSubmitting = '1'; form.submit(); }\n" +
                 "        }, 250);\n" +
                 "      }\n" +
                 "    });\n" +
+                "    return true;\n" +
+                "  }\n" +
+                "\n" +
+                "  // Cap (self-hosted): web component; lost de proof-of-work automatisch op en\n" +
+                "  // injecteert zelf een hidden cap-token input in de form. Geen submit-interceptie nodig.\n" +
+                "  // Tip: host cap-widget zelf en vervang de jsdelivr-URL hieronder, dan blijft\n" +
+                "  // alles (incl. bezoekersdata) op eigen infrastructuur.\n" +
+                "  function injectCap(form) {\n" +
+                "    if (form.querySelector('cap-widget')) return true;\n" +
+                "    var w = document.createElement('cap-widget');\n" +
+                "    w.setAttribute('data-cap-api-endpoint', CAP_ENDPOINT + '/' + SITE_KEY + '/');\n" +
+                "    insertBeforeSubmit(form, w);\n" +
+                "    loadScript('https://cdn.jsdelivr.net/npm/cap-widget');\n" +
+                "    return true;\n" +
+                "  }\n" +
+                "\n" +
+                "  // Cloudflare Turnstile: div.cf-turnstile; auto-render door api.js en\n" +
+                "  // injecteert zelf een hidden cf-turnstile-response input. Geen submit-interceptie nodig.\n" +
+                "  function injectTurnstile(form) {\n" +
+                "    if (form.querySelector('.cf-turnstile')) return true;\n" +
+                "    var w = document.createElement('div');\n" +
+                "    w.className = 'cf-turnstile';\n" +
+                "    w.setAttribute('data-sitekey', SITE_KEY);\n" +
+                "    insertBeforeSubmit(form, w);\n" +
+                "    loadScript('https://challenges.cloudflare.com/turnstile/v0/api.js');\n" +
                 "    return true;\n" +
                 "  }\n" +
                 "\n" +
@@ -109,6 +141,8 @@ public class RecaptchaResourceProvider implements RealmResourceProvider {
                 "    if (!SITE_KEY) return true;\n" +
                 "    var form = findLoginForm();\n" +
                 "    if (!form) return false;\n" +
+                "    if (PROVIDER === 'cap') return injectCap(form);\n" +
+                "    if (PROVIDER === 'turnstile') return injectTurnstile(form);\n" +
                 "    return IS_V3 ? injectV3(form) : injectV2(form);\n" +
                 "  }\n" +
                 "\n" +
@@ -118,8 +152,7 @@ public class RecaptchaResourceProvider implements RealmResourceProvider {
                 "    inject();\n" +
                 "  }\n" +
                 "\n" +
-                "  // Fallback poll: covers themes that render the password field lazily (client-side\n" +
-                "  // step toggles, etc). Stops once injected or after ~10s.\n" +
+                "  // Fallback poll: dekt themes die het wachtwoordveld pas later renderen.\n" +
                 "  var attempts = 0;\n" +
                 "  var timer = setInterval(function () {\n" +
                 "    attempts++;\n" +
@@ -128,6 +161,31 @@ public class RecaptchaResourceProvider implements RealmResourceProvider {
                 "})();\n";
 
         return Response.ok(js).build();
+    }
+
+    private static String sanitize(String s) {
+        return s == null ? "" : s.replace("\"", "").replace("\\", "").replace("<", "").replace(">", "");
+    }
+
+    private static String sanitizeProvider(String p) {
+        if (p == null) return "google-v2";
+        switch (p) {
+            case "google-v2":
+            case "google-v3":
+            case "recaptcha-net-v2":
+            case "recaptcha-net-v3":
+            case "cap":
+            case "turnstile":
+                return p;
+            default:
+                return "google-v2";
+        }
+    }
+
+    private static String sanitizeUrl(String u) {
+        if (u == null) return "";
+        String t = u.trim().replaceAll("/+$", "").replace("\"", "").replace("\\", "").replace(" ", "");
+        return (t.startsWith("https://") || t.startsWith("http://")) ? t : "";
     }
 
     @Override
