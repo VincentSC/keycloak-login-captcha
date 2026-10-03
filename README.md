@@ -51,15 +51,19 @@ Keycloak needs to be started with `--import-realm` to trigger reading of `playgr
    - **Minimum Score (v3 only)** — 0.0–1.0, higher = stricter. Ignored for v2 and other captcha-services.
 3. **Authentication → Bindings** (or the realm's `browserFlow` setting) — point `Browser flow` at
    your new flow.
-4. **Realm Settings → Security Defenses → Content-Security-Policy** — the widget renders in an
-   iframe from Google's domain, so the default CSP (`frame-src 'self'; ...`) blocks it. Add the
-   domain(s) you use:
+4. **Realm Settings → Security Defenses → Content-Security-Policy** — the widget renders in an iframe from Google's domain, so the default CSP (`frame-src 'self'; ...`) blocks it. (only append to `frame-src` — leave `frame-ancestors`/`object-src` as-is, those are unrelated clickjacking/plugin protections, not part of this fix.)
+   - For Google / Recaptcha:
    ```
    frame-src 'self' https://www.google.com https://www.recaptcha.net; frame-ancestors 'self'; object-src 'none';
    ```
-   (only append to `frame-src` — leave `frame-ancestors`/`object-src` as-is, those are unrelated
-   clickjacking/plugin protections, not part of this fix.)
-
+   - For self-hosted Cap, fill in the domain of the Cap-instance:
+   ```
+   frame-src 'self' https://cap.example.com; frame-ancestors 'self'; object-src 'none';
+   ```
+   - For Cloudflare Turnstile:
+   ```
+   frame-src 'self' https://challenges.cloudflare.com; frame-ancestors 'self'; object-src 'none';
+   ```
 ## How reCaptcha works
 
 `RecaptchaUsernamePasswordForm.authenticate()` builds a URL to the bundled resource provider (`/realms/{realm}/recaptcha-widget/inject.js?siteKey=...&domain=...&version=...`) and registers it via `form.addScript(...)`. Every Keycloak theme's `template.ftl` renders `form.addScript()` URLs into `<head>` as part of the standard page shell — that's the only extension point guaranteed to render regardless of theme, so the injected script (served by our own `RealmResourceProvider`, not a theme resource) does the actual DOM work: finds the login form, either renders the v2 checkbox div or wires up the v3 execute-on-submit flow, and loads Google's `api.js`.
