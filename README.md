@@ -79,7 +79,7 @@ If you want to add code for other Captcha-services, feel free to send a PR. Also
 Support (and testers!) needed for:
 - [captcha.eu](https://www.captcha.eu/)
 - [hCaptcha](https://www.hcaptcha.com/)
-- e[u-captcha (Myra)](https://www.eu-captcha.eu/en/)
+- [eu-captcha (Myra)](https://www.eu-captcha.eu/en/)
 - [FriendlyCaptcha](https://friendlycaptcha.com/)
 - [Procaptcha](https://prosopo.io/products/procaptcha/)
 - [CaptchaFox](https://captchafox.com/)
