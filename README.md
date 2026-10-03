@@ -2,6 +2,8 @@
 
 Keycloak authenticator that supports [Google reCAPTCHA](https://developers.google.com/recaptcha/) v2 checkbox, Google reCAPTCHA v3 invisible, [Cloudflare TurnStile](https://www.cloudflare.com/products/turnstile/) and (self-hosted) [Cap](https://getcap.dev/) to the username/password login step. Fork of [https://github.com/troke12/keycloak-login-recaptcha](https://github.com/troke12/keycloak-login-recaptcha) which in turn is a fork of [raptor-group/keycloak-login-recaptcha](https://github.com/raptor-group/keycloak-login-recaptcha). 
 
+Reason I made this, is that I got irritated by random bot-attacks on a public instance. 
+
 ## Compatibility
 
 - Built and tested against **Keycloak 26.8.0** (`keycloak-core`/`keycloak-server-spi`/`keycloak-server-spi-private`/`keycloak-services`, see `pom.xml`). It should work with Keycloak 25 and 26 (quarkus).
@@ -69,5 +71,18 @@ Cap and Turnstile work alike.
 ## PRs and issues
 
 If you want to add code for other Captcha-services, feel free to send a PR. Also generic updates, like version-updates are welcome.
+
+Support (and testers!) needed for:
+- [captcha.eu](https://www.captcha.eu/)
+- [hCaptcha](https://www.hcaptcha.com/)
+- e[u-captcha (Myra)](https://www.eu-captcha.eu/en/)
+- [FriendlyCaptcha](https://friendlycaptcha.com/)
+- [Procaptcha](https://prosopo.io/products/procaptcha/)
+- [CaptchaFox](https://captchafox.com/)
+- [Private Captcha](https://privatecaptcha.com/)
+- [ALTCHA](https://altcha.org/)
+- ...
+
+So we can have one plugin to provide full choice, and not have multiple repos for each.
 
 For bugs please first discuss in an issue.
