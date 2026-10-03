@@ -16,7 +16,7 @@ services:
       KC_DB_PASSWORD: ${DB_PASSWORD}
     volumes:
       - ./playground-realm.json:/opt/keycloak/data/import/playground-realm.json
-      - ./recaptcha-login.jar:/opt/keycloak/providers/recaptcha-login.jar
+      - ./target/recaptcha-login.jar:/opt/keycloak/providers/recaptcha-login.jar
 #      - ./volumes/backup:/opt/keycloak/backup
 #      - ./volumes/themes:/opt/keycloak/themes
     ports:
