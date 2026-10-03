@@ -1,5 +1,7 @@
 # keycloak-login-captcha
 
+This is for **login** only! No support for captchas on other forms (yet).
+
 Keycloak authenticator that supports [Google reCAPTCHA](https://developers.google.com/recaptcha/) v2 checkbox, Google reCAPTCHA v3 invisible, [Cloudflare TurnStile](https://www.cloudflare.com/products/turnstile/) and (self-hosted) [Cap](https://getcap.dev/) to the username/password login step. Fork of [https://github.com/troke12/keycloak-login-recaptcha](https://github.com/troke12/keycloak-login-recaptcha) which in turn is a fork of [raptor-group/keycloak-login-recaptcha](https://github.com/raptor-group/keycloak-login-recaptcha). 
 
 Reason I made this, is that I got irritated by random bot-attacks on a public instance. 
