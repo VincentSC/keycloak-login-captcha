@@ -15,7 +15,7 @@ Reason I made this, is that I got irritated by random bot-attacks on a public in
 3. Added a DB so configs and sessions survive reboots.
 4. Replaced old references to pre-quarkus Keycloak versions, which caused multiple bugs
 5. Added Cap
-6. Added AWS Turnstile
+6. Added Cloudflare Turnstile
 
 ## Build
 
